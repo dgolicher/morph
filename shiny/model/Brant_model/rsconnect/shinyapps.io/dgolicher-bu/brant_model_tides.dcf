@@ -1,0 +1,10 @@
+name: brant_model_tides
+title: Brant_model_tides
+account: dgolicher-bu
+server: shinyapps.io
+appId: 145216
+bundleId: 650096
+url: https://dgolicher-bu.shinyapps.io/brant_model_tides/
+when: 1481736839.27484
+asMultiple: FALSE
+asStatic: FALSE

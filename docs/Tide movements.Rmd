@@ -1,0 +1,70 @@
+---
+title: "Running tides"
+output: html_document
+---
+## Introduction
+
+The tables from the database have been converted into R objects and stored in a file. 
+
+```{r}
+library(rgdal)
+library(plotly)
+library(ggplot2)
+load("/home/rstudio/morph/data/test.rob")
+current_grat<-grat
+
+```
+
+```{r}
+day<-12
+month<-2
+year<-2016
+hr<-12
+tm<-sprintf("%04d-%02d-%02d %02d:00:00",year,month,day,hr)
+tm<-as.POSIXct(tm)
+tm+60*60
+```
+
+
+```{r}
+FSuitable<-function(tm=tm,tides=tides,grat=grat,depth=-1,height=1){
+current_tide<-subset(tides,tides$time==tm)
+d<-merge(grat@data,current_tide)
+tide<-d$ht
+depth<-depth+tide
+height<-height+tide
+dd<-cbind(d$min,d$q10,d$q25,d$median,d$q75,d$q90,d$max,depth,height)
+f<-function(x)
+  {
+  q<-c(0,10,25,50,75,90,100)
+  qs<-x[1:7]
+  depth<-x[8]
+  height<-x[9]
+  x2<-q[qs>=depth&qs<=height]
+  x2<-max(x2,na.rm=TRUE)-min(x2,na.rm=TRUE)
+  if(is.na(x2))x2<-0
+  if(x2==-Inf)x2<-0
+  x2
+  }
+
+d$psuitable<-apply(dd,1,f)
+d
+}
+```
+
+
+```{r,warning=FALSE}
+current_grat@data<-FSuitable(tm,tides,grat,depth=-0.2,height=0.5)
+plot(current_grat)
+points(coordinates(current_grat),cex=current_grat@data$psuitable/100,pch=23,bg="red")
+```
+
+```{r,warning=FALSE}
+tm<-tm+60*60*4
+current_grat@data<-FSuitable(tm,tides,grat,depth=-0.2,height=0.5)
+plot(current_grat)
+points(coordinates(current_grat),cex=current_grat@data$psuitable/100,pch=23,bg="red")
+d<-current_grat@data
+```
+
+

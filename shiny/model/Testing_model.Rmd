@@ -1,0 +1,370 @@
+---
+title: "Designing a bird movement algorithm"
+output: html_document
+---
+
+## Load the data
+
+The data has all been saved in an object called test. The distances are between the centroids of the patches. 
+An object called "grat" is a spatialPolygonsDataframe that can be useful for plotting. However there can be problems when merging data directly with this object if some polygons are not included or if the data frame is sorted. Therefore it is preferable to use the sites object that contains the same information with the centroids as x and y coordinates.
+
+
+```{r,message=FALSE,warning=FALSE}
+library(shiny)
+library(rgdal)
+library(plotly)
+library(ggplot2)
+library(dismo)
+library(dplyr)
+load("/home/rstudio/morph/data/test.rob")
+map<-gmap(grat,type="satellite")
+ls()
+
+```
+
+## The dist object
+
+This contains the distances in meters between each patch defined by an rid identifying number. The size if this data frame could be reduced by setting a maximum serach distace around any patch.
+
+```{r}
+search_dist<-subset(dist,dist$dist_m<1200)
+head(search_dist)
+```
+
+## The sites object
+
+This is a wide data frame with the information added from the database.
+
+```{r}
+head(sites)
+```
+
+## The tides dataframe
+
+```{r}
+head(tides)
+```
+
+##  The climate data frame
+
+On any given day the birds can find out the maximum and minimum temperature and windspeed.
+
+
+```{r}
+head(clim)
+```
+
+
+
+# Functions
+
+A utility function to make a standardised Posix timestamp from year, month and day. Time can be advanced in seconds, so add 60*60 to move on an hour
+
+```{r}
+FMakeTime<-function(year=2016,month=1,day=1,hr=1){
+  tm<-sprintf("%04d-%02d-%02d %02d:00:00",year,month,day,hr)
+  tm<-as.POSIXct(tm)
+  tm
+}
+tm<-FMakeTime()
+tm
+tm+60*60
+```
+
+## Change water depth 
+
+This is a key function in this context. It takes the quantile depths as calculated in the database into account. In the present version the quantiles include are q10, q25, q50 (median), q75 and q90. This could be changed by altering the function in the database.
+
+R passes by reference and problems can sometimes arise if objects within a function have the same names as objects in the global environment. It is also a bad idea to change objects in the global environment directly within functions. So I will preface objects passed to a function from another environment with an f to mean the local (function) version.
+
+```{r}
+
+FSuitable<-function(fsites=sites,ftm=tm,ftides=tides,depth=-1,height=1){
+  current_tide<-subset(ftides,ftides$time==ftm)
+  d<-merge(fsites,current_tide)
+  tide<-d$ht
+  depth<-depth+tide
+  height<-height+tide
+  dd<-cbind(d$min,d$q10,d$q25,d$median,d$q75,d$q90,d$max,depth,height)
+  f<-function(x)
+  {
+    q<-c(0,10,25,50,75,90,100)
+    qs<-x[1:7]
+    depth<-x[8]
+    height<-x[9]
+    x2<-q[qs>=depth&qs<=height]
+    # The supress warnings are needed as the vector may be of zero
+    # length. This also leads to results of -inf instead of zero
+    suppressWarnings(x2<-max(x2,na.rm=TRUE)-min(x2,na.rm=TRUE))
+    if(is.na(x2))x2<-0
+    if(x2==-Inf)x2<-0
+    x2
+  }
+  fsites$psuitable<-apply(dd,1,f)
+  fsites
+}
+
+
+```
+
+
+```{r}
+tm<-FMakeTime(2016,3,1)
+sites<-FSuitable(fsites=sites,ftm=tm,ftides=tides,depth=-1,height=1)
+head(sites)
+```
+
+## Example map
+
+```{r}
+plot(map)
+eelgrass<-(sites$psuitable/100)*(sites$median_biomass/200)
+points(sites$x,sites$y,cex=eelgrass,pch=23,bg="red")
+```
+
+## Add some birds
+
+Birds can arrive with their properties already set through loading from a file. However for testing we'll set up a simple way of adding them.
+
+A range of functions for deriving energy from food and losing it through metabilism will have to be added. However these are comparatively simple functions providing food supply, temperature and activity levels are known.
+
+
+```{r}
+FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites)
+  {
+  wt<-rnorm(nbirds,mean=1.5,sd=0.2) ##Change this later
+  ## Add other properties here
+  ##
+  rid<-sample(fsites$rid,nbirds,replace=TRUE) ## Place them at random
+  bid<-1:nbirds ## ID number
+  birds<-data.frame(bid,arrive_time=ftm,weight=wt,rid=rid)
+  birds
+}
+
+
+```
+
+```{r}
+birds<-FArriveBirds(tm,3,sites)
+head(birds,3)
+```
+
+## Add birds
+
+```{r}
+FAddBirds<-function(ftm=tm,nbirds= 10,fsites=sites,fbirds=birds)
+  {
+  newbirds<-FArriveBirds(ftm,nbirds,fsites)
+  newbirds$bid<-newbirds$bid+max(fbirds$bid)
+  rbind(fbirds,newbirds)
+}
+
+```
+
+```{r}
+birds<-FAddBirds(tm+60*60,3,sites,birds)
+birds
+```
+
+## Tell birds where they are
+
+Because sites and birds have one column with the same name that identifies the site all that is needed to provide them with the site properties is to merge the two dataframes using the defaults. Merging is achieved in R through lazy evaluation so this is very fast. Once the birds know which site they are on and the properties of that site the changes to both the birds state and the sites are very easy to implement using simple functions. The most challenging function to implement and to optimise for speed is bird movement. The function should be vectorised rather than looped as this dramatically speeds up the calculations by two to three orders of magnitude. It should be simple to understand in order to test that it does what it should and alter it to allow for new ideas.
+
+```{r}
+birds_sites<-merge(birds,sites)
+head(birds_sites)
+
+
+```
+
+```{r}
+plot(map)
+points(birds_sites$x,birds_sites$y,pch=23,bg="red")
+```
+
+## Moving birds to best patch
+
+The patches within reach of any other patch are defined in the distance object. If we define a scoring rule for the patches that can be translated into an index we can move the birds onto the best one within range. If we want to prevent the patches filling with birds we could move some first, then re-calculate the desirability by reducing the scores according to the number of birds, then move some more. This keeps the operation vectorised rather than looping through each bird in turn. Moving the birds has the potential to slow the model down dramatically due to the inclusion of the distance matrix.
+
+For the moment we'll try just moving them all together, but the same function could be used to move a subset of birds first and then more later in the same time step.
+
+#### A scoring rule
+
+Just try something very simple first. 
+
+```{r}
+FValueSites<-function(fsites=sites)
+{
+  ## Make a rule for calculating value of site 
+  # for feeding
+  ## Make it the amount of biomass times proportion available
+  fsites$value<-fsites$psuitable/100*fsites$mean_biomass
+  fsites$value[is.na(fsites$value)]<-0
+  fsites
+}
+
+```
+
+
+```{r}
+sites<-FValueSites(sites)
+head(sites)
+```
+
+### Setting up the possible moves
+
+If we merge just the unique rid's of the patches with birds on with the distances data frame we get an object with all the possible rid2s (destinations) within the search range. 
+
+If we then use the rid2s as an index we can find the values of the resource on these patches.
+
+```{r}
+search_dist<-subset(dist,dist$dist_m<1200) ## Reduce the number of options to within a search distance
+
+bird_positions<-data.frame(rid=unique(birds_sites$rid))
+bird_moves<-merge(bird_positions,search_dist)
+destination_value<-data.frame(rid2=sites$rid,value=sites$value)
+bird_moves<-merge(bird_moves,destination_value)
+head(bird_moves)
+```
+
+
+## Rank the moves
+
+Use a tapply to group the moves according to the rid at the place of origin then rank them from each destination.
+
+```{r}
+bird_moves<-bird_moves[order(bird_moves$rid),]
+set.seed(1)
+ f<-function(x)rank(-x,ties.method= "random")
+  bird_moves$rank<-unlist(tapply(bird_moves$value,bird_moves$rid,f))
+  bird_moves
+```
+
+We could now just take the best move and assign the new rid to all the birds.
+
+```{r}
+bird_moves<-subset(bird_moves,bird_moves$rank==1)
+bird_moves<-merge(birds,bird_moves)
+bird_moves
+```
+
+Note that the birds now know their new rid (rid2) and the distance they need to move to it. There are some extra columns that need removing to obtain a new birds data frame which is identical to the original, but with an updated rid for the site on which they are on.
+
+
+```{r}
+bird_moves$rid<-bird_moves$rid2
+keep_columns<-1:dim(birds)[2]
+birds<-bird_moves[,keep_columns]
+birds
+```
+
+
+## Make a bird move function
+
+This work flow is quite simple to follow and so should be robust. It now needs testing with more birds over greater distances. The steps can be rolled up into a function first.
+
+```{r}
+
+FMoveBirds<-function(fbirds=birds,fsites=sites,fdist=dist,search_distance=1200)
+{
+  ##Set the search distance
+  fdist<-subset(fdist,fdist$dist_m<search_distance)
+  # Merge the bird data frame to sites to get the values at the sites
+  birds_sites<-merge(fbirds,fsites)
+  # Take only the sites with birds
+  bird_positions<-data.frame(rid=unique(birds_sites$rid))
+  # Get all the possible moves from these sites by merging
+  bird_moves<-merge(bird_positions,fdist)
+  # Find the value of the index used for choosing the site at the destinations
+  destination_value<-data.frame(rid2=fsites$rid,value=fsites$value)
+  # Add this to the object used for evaluating the moves
+  bird_moves<-merge(bird_moves,destination_value)
+  ## the next two lines not really needed, Used in testing
+  ## They order the object and set a seed for the random choice
+  bird_moves<-bird_moves[order(bird_moves$rid),]
+  set.seed(1)
+  ###
+  # A function to rank the values. Ties are assigned at random.
+    f<-function(x)rank(-x,ties.method= "random")
+  ## Now rank all the moves, grouping by point of origin.
+  bird_moves$rank<-unlist(tapply(bird_moves$value,bird_moves$rid,f))
+  # Take only the best
+  bird_moves<-subset(bird_moves,bird_moves$rank==1)
+  # Merge the movements with the birds data frame so that the birds know where they are going to.
+  bird_moves<-merge(fbirds,bird_moves)
+  # Assign the new rids to the birds
+  bird_moves$rid<-bird_moves$rid2
+  # Get rid of the extra columns in the dataframe to return it to the old state
+  keep_columns<-1:dim(fbirds)[2]
+  fbirds<-bird_moves[,keep_columns]
+  fbirds
+}
+
+```
+
+
+```{r}
+FMoveBirds(birds,sites,dist)
+```
+
+
+## Making it more serious
+
+Try adding 40000 birds
+
+```{r}
+birds<-FAddBirds(tm+60*60,40000,sites,birds)
+system.time(birds<-FMoveBirds(birds,sites,dist,search_distance=1200))
+birds %>%
+group_by(rid) %>%
+summarise(n())
+```
+
+
+```{r}
+birds_sites<-merge(birds,sites)
+plot(map)
+points(birds_sites$x,birds_sites$y,pch=23,bg="red")
+```
+
+Now widen search distance to 50 km
+
+```{r}
+
+system.time(birds<-FMoveBirds(birds,sites,dist,search_distance=50000))
+```
+
+Now as most of the map is within range the birds all go to the two best sites available.
+
+I'm very happy with the calculation time for this. Because the operation is site based rather than bird based and only looks at possible options for sites which are occupied it will speed up once all the birds are in the same place. So it is feasible to iterate the optimality criteria to include crowding and so move the birds several times in each time step to make adjustments while keeping within the target of less than 2 seconds per time step to ensure that a six month model run completes in less than three hours.
+
+Watch the speed up in a second iteration once the number of sites has reduced to two.
+
+```{r}
+
+system.time(birds<-FMoveBirds(birds,sites,dist,search_distance=2000))
+```
+
+
+```{r}
+birds_sites<-merge(birds,sites)
+plot(map)
+points(birds_sites$x,birds_sites$y,pch=23,bg="red")
+```
+
+
+## Time with half a million birds
+
+
+```{r}
+birds<-FAddBirds(tm+60*60,500000,sites,birds)
+system.time(birds<-FMoveBirds(birds,sites,dist,search_distance=1200))
+```
+
+
+
+Slowing down, but still a reasonable time. However there should never be any need to use such a large number of individuals. In fact there is probably no need to ever use many more individuals than there are sites if each individual represents a super individual.
+
+
+
+

@@ -1,0 +1,46 @@
+---
+title: "Biomass calculation test"
+output: html_document
+---
+
+```{r}
+x<-seq(-2,2,length=100)
+biomass<- -8.7932*x^2 - 120.15*x + 169.27
+plot(biomass~x)
+```
+
+```{r}
+biomass<--72.413*x^2 - 94.75*x + 198.93
+plot(biomass~x)
+```
+
+
+```{r}
+shootlength<--0.25641*x + 0.48837
+plot(shootlength~x)
+```
+
+
+
+```{r}
+library(raster)
+dem<-raster("/home/rstudio/morph/rasters/dem.tif")
+plot(dem)
+biomass<- -72.413*dem^2 - 94.75*dem + 198.93
+biomass[biomass<=0]<-NA
+biomass<-round(biomass+1,0)
+plot(biomass)
+shootlength<--0.25641*dem + 0.48837
+shootlength[biomass<=0]<-0
+shootlength[shootlength<=0]<-0
+shootlength[shootlength>1.5]<-0
+shootlength<-round(shootlength*100,0)
+plot(shootlength)
+dataType(biomass)<-"INT2S"
+dataType(shootlength)<-"INT2S"
+writeRaster(biomass,filename="/home/rstudio/morph/rasters/biomass.tif",overwrite=TRUE)
+writeRaster(shootlength,filename="/home/rstudio/morph/rasters/shootlength.tif",overwrite=TRUE)
+
+
+```
+
