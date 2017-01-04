@@ -1,0 +1,104 @@
+---
+title: "Energetics"
+output:
+  pdf_document: default
+  html_document: default
+  
+---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+source("model_functions.R")
+library(insol)
+Lat<-median(sites$lat)
+Lon<-median(sites$lon)
+```
+
+## Calculate basal metabolic rate (BMR)
+
+This is the function taken from Humbolt paper
+
+```{r}
+FBMR <- function(mass)4.59*mass^0.69
+FBMR(1.4)
+mass<-(1440:1576)/1000
+plot(FBMR(mass)~mass)
+
+```
+
+
+## Using the spreadsheer equation taking into account temperature and windspeed
+
+As I understand it from the spreadsheet this set of equation should calculate the metabolic rate in the same units ()
+```{r}
+
+FMR<-function(temperature=4,windspeed=9.4,mass=1500)
+{
+TBrant<-37.5
+DeltaT<-TBrant-temperature
+b<-0.0092*mass^0.66*DeltaT^0.32
+a<-4.15-b*sqrt(0.06)
+a+b+sqrt(windspeed)
+}
+FMR()
+
+
+```
+
+## Testing against a year's climate data
+
+I haven't got data for the whole of 2016.
+
+```{r}
+clim<-subset(clim,as.numeric(format(clim$date,'%Y'))==2015)
+temperature<-(clim$tmin+clim$tmax)/20
+windspeed<-0.277778*clim$avwind
+plot(temperature,FMR(temperature))
+```
+
+```{r}
+plot(clim$date,FMR(temperature,windspeed))
+```
+
+## Consumption function from the Humbolt paper
+
+```{r}
+biomass<-1:100
+FConsumption<-function(biomass)100*0.01028*(1-exp(-0.105*biomass))*(1.0373*(1-exp(-0.0184*biomass)))
+plot(FConsumption(biomass)~biomass)
+```
+
+Converting into energy assimilated
+
+```{r}
+FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E
+plot(FEnergyAssim(FConsumption(biomass))~biomass)
+
+```
+
+```{r}
+plot(FEnergyAssim(FConsumption(sites$mean_biomass))~sites$mean_biomass)
+```
+
+#################
+
+
+## A Utility function to calculate day or night
+
+Use the insol package. This produces an object with sunrise and sunset times, so if the hour falls between them it is day.
+
+```{r,warning=FALSE,message=FALSE}
+
+FIsDay<-function(tm,Lat=55.32,Lon=-162.8)
+{
+hr<-as.numeric(format(tm, format='%H'))
+day_len<-data.frame(daylength(Lat, Lon,JD(tm), tmz=-10))
+isday<-ifelse(hr>day_len$sunrise & hr< day_len$sunset,"Day","Night") 
+isday}
+
+tm<-FMakeTime(2016,1,1,10)
+FIsDay(tm)
+tm<-FMakeTime(2016,1,1,7)
+FIsDay(tm)
+
+```
+
