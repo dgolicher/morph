@@ -1,6 +1,8 @@
 ---
 title: "Designing a bird movement algorithm"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ## Load the data
