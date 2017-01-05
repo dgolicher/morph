@@ -65,6 +65,8 @@ plot(clim$date,FMR(temperature,windspeed))
 biomass<-1:100
 FConsumption<-function(biomass)100*0.01028*(1-exp(-0.105*biomass))*(1.0373*(1-exp(-0.0184*biomass)))
 plot(FConsumption(biomass)~biomass)
+
+
 ```
 
 Converting into energy assimilated
