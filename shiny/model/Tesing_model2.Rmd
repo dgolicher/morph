@@ -31,15 +31,17 @@ plot(FBMR(mass)~mass)
 As I understand it from the spreadsheet this set of equation should calculate the metabolic rate in the same units ()
 ```{r}
 
-FMR<-function(temperature=4,windspeed=9.4,mass=1500)
+FMR<-function(temperature=-10,windspeed=2,mass=1500)
 {
-TBrant<-37.5
+TBrant<-7.5
+temperature[temperature>TBrant]<-TBrant
+windspeed[windspeed<0.5]<-0.5
 DeltaT<-TBrant-temperature
 b<-0.0092*mass^0.66*DeltaT^0.32
 a<-4.15-b*sqrt(0.06)
 a+b+sqrt(windspeed)
 }
-FMR()
+FMR(10)
 
 
 ```
@@ -51,7 +53,7 @@ I haven't got data for the whole of 2016.
 ```{r}
 clim<-subset(clim,as.numeric(format(clim$date,'%Y'))==2015)
 temperature<-(clim$tmin+clim$tmax)/20
-windspeed<-0.277778*clim$avwind
+windspeed<-clim$avwind/10
 plot(temperature,FMR(temperature))
 ```
 

@@ -1,0 +1,68 @@
+---
+title: "Climate"
+output: html_document
+---
+
+```{r,warning=FALSE,message=FALSE}
+library(shiny)
+library(rgdal)
+library(plotly)
+library(ggplot2)
+library(dismo)
+library(dplyr)
+load("/home/rstudio/morph/data/test.rob")
+clim$yr<-as.numeric(format(clim$date,"%Y"))
+clim$mn<-as.numeric(format(clim$date,"%m"))
+
+
+
+```
+
+
+```{r}
+
+clim %>%
+  group_by(yr) %>%
+  summarise(
+    tmin = mean(tmin, na.rm = TRUE),
+    tmax = mean(tmax, na.rm = TRUE)
+  ) -> clim_yr
+
+clim %>%
+  group_by(yr, mn) %>%
+  summarise(
+    tmin = mean(tmin, na.rm = TRUE)/10,
+    tmax = mean(tmax, na.rm = TRUE)/10,
+    wnd = mean(avwind, na.rm = TRUE)
+  ) -> clim_mn
+
+```
+
+```{r}
+library(mgcv)
+mod<-gam(data=clim_yr,tmin~s(yr))
+plot(mod)
+mod<-gam(data=clim_mn,tmin~s(yr)+s(mn))
+plot(mod)
+```
+
+```{r}
+g0<-ggplot(clim_mn,aes(x=yr,y=tmin))
+g0+geom_point()+geom_smooth()+facet_wrap("mn")
+```
+
+```{r}
+g0<-ggplot(clim_mn,aes(x=yr,y=wnd))
+g0+geom_point()+geom_smooth()+facet_wrap("mn")
+```
+
+```{r}
+mod<-gam(data=clim,tmin~s(mn))
+clim$tmin_res<-residuals(mod)
+```
+
+```{r}
+g0<-ggplot(clim,aes(x=date,y=tmin_res,col=as.factor(mn)))
+g0+geom_smooth()
+```
+

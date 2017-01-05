@@ -1,8 +1,8 @@
 ---
 title: "Designing a bird movement algorithm"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ## Load the data
@@ -132,14 +132,25 @@ A range of functions for deriving energy from food and losing it through metabil
 
 
 ```{r}
-FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites)
+
+FFat2Energy<-function(fat)34.3*fat # g fat to KJoules
+FEnergy2fat<-function(enery)energy/34.3 # KJoules to g fat
+
+FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites,male_wt=1500,female_wt=1400,fat=300)
   {
-  wt<-rnorm(nbirds,mean=1.5,sd=0.2) ##Change this later
+  sex<-sample(c("M","F"),nbirds,replace=T)
+  lean_wt<-numeric(nbirds)
+  lean_wt[sex=="M"]<-male_wt
+  lean_wt[sex=="F"]<-female_wt
+  lean_wt<-lean_wt+rnorm(nbirds,0,sd=20)
+  fat<-rlnorm(nbirds,mean=log(fat),sd=0.2)
+  wt<-lean_wt+fat
+  energy_store<-FFat2Energy(fat)
   ## Add other properties here
   ##
   rid<-sample(fsites$rid,nbirds,replace=TRUE) ## Place them at random
   bid<-1:nbirds ## ID number
-  birds<-data.frame(bid,arrive_time=ftm,weight=wt,rid=rid)
+  birds<-data.frame(bid,arrive_time=ftm,sex=sex,weight=wt,fat=fat,energy_store=energy_store,rid=rid)
   birds
 }
 

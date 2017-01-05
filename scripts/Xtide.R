@@ -3,7 +3,7 @@ source("/home/rstudio/morph/scripts/db_functions.R")
 ## Assuming the Brant database exists
 PgLoadVector(flnm="xtide_sites",tabnm="xtide_sites",db="brant",srid=4326,path="/home/rstudio/morph/shapefiles/")
 library("date")
-startchar <- '2016-01-01 01:00'
+startchar <- '2015-01-01 01:00'
 endchar <- '2018-01-01 01:00'
 # Site name, taken from http://www.flaterco.com/xtide/locations.html
 site1 <-'Grant Point, Izembek Lagoon, Bristol Bay, Alaska'

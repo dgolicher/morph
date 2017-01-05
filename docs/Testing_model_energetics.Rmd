@@ -1,0 +1,174 @@
+---
+title: "Energetics"
+output:
+  pdf_document: default
+  html_document: default
+  
+---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+source("/home/rstudio/morph/scripts/model_functions.R")
+library(insol)
+Lat<-median(sites$lat)
+Lon<-median(sites$lon)
+```
+
+## Calculate basal metabolic rate (BMR)
+
+This is the function taken from Humbolt paper
+
+```{r}
+FBMR <- function(mass)4.59*mass^0.69
+FBMR(1.4)
+mass<-(1440:1576)/1000
+plot(FBMR(mass)~mass)
+
+```
+
+
+## Using the spreadsheer equation taking into account temperature and windspeed
+
+As I understand it from the spreadsheet this set of equation should calculate the metabolic rate in the same units ()
+```{r}
+
+FBMR<-function(ftemperature=-10,fwindspeed=2,fmass=1500)
+{
+TBrant<-7.5
+ftemperature[ftemperature>TBrant]<-TBrant
+fwindspeed[fwindspeed<0.5]<-0.5
+DeltaT<-TBrant-ftemperature
+b<-0.0092*fmass^0.66*DeltaT^0.32
+a<-4.15-b*sqrt(0.06)
+a+b+sqrt(fwindspeed)
+}
+FBMR(10)
+
+
+```
+
+## Testing against a year's climate data
+
+I haven't got data for the whole of 2016.
+
+```{r}
+clim<-subset(clim,as.numeric(format(clim$date,'%Y'))==2015)
+temperature<-(clim$tmin+clim$tmax)/20
+windspeed<-clim$avwind/10
+plot(temperature,FBMR(temperature))
+```
+
+```{r}
+plot(clim$date,FBMR(temperature,windspeed))
+```
+
+## Consumption function from the Humbolt paper
+
+```{r}
+biomass<-1:100
+FConsumption<-function(fbiomass)100*0.01028*(1-exp(-0.105*fbiomass))*(1.0373*(1-exp(-0.0184*fbiomass))/60)
+plot(FConsumption(biomass)~biomass)
+
+
+```
+
+Converting into energy assimilated
+
+```{r}
+FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E*1000
+plot(FEnergyAssim(FConsumption(biomass))~biomass)
+
+```
+
+```{r}
+plot(FEnergyAssim(FConsumption(sites$mean_biomass))~sites$mean_biomass)
+```
+
+#################
+
+
+## A Utility function to calculate day or night
+
+Use the insol package. This produces an object with sunrise and sunset times, so if the hour falls between them it is day.
+
+```{r,warning=FALSE,message=FALSE}
+
+FIsDay<-function(tm,Lat=55.32,Lon=-162.8)
+{
+hr<-as.numeric(format(tm, format='%H'))
+day_len<-data.frame(daylength(Lat, Lon,JD(tm), tmz=-10))
+isday<-ifelse(hr>day_len$sunrise & hr< day_len$sunset,"Day","Night") 
+isday}
+
+tm<-FMakeTime(2016,1,1,10)
+FIsDay(tm)
+tm<-FMakeTime(2016,1,1,7)
+FIsDay(tm)
+
+```
+
+## Resting
+
+
+Assume 20% over BMR. Add time argument in seconds.
+Returns energy used in KJoules.
+
+```{r}
+
+BMR<-FBMR(temperature,windspeed,fmass=1700)
+
+FRest<-function(fbmr=BMR,ftime=3600)
+{1.2*fbmr*ftime/1000}
+
+hist(FEnergy2Fat(FRest()))
+```
+
+## Feeding
+
+Assume use twice BMR while feeding.
+
+```{r}
+FFeed<-function(fbmr=BMR,ftime=3600,fbiomass=100){
+EGain<-FEnergyAssim(FConsumption(fbiomass))*ftime/1000
+EUse<-2*fbmr*ftime/1000
+EGain-EUse
+}
+hist(FEnergy2Fat(FFeed()))
+```
+
+## Maximum energy per day
+
+According to the Humbolt paper this is given by
+
+```{r}
+FMaxDaily<-function(mass)1713*mass^0.72
+FMaxDaily(1500)/1000
+FFeed()[1]
+```
+
+So using these formulae the birds can get enough energy for a whole day from just one hour's intensive feeding. This seems much too high. However this assumes that an hour feeding is completely dedicated to intensive feeding activity, which is unrealistic.
+
+## Flying
+
+Assume velocity of 60km per second and overhead for take off for all flights equivalent to a minute's flight time. Use 12 times BMR.
+
+
+
+```{r}
+
+FFlightTime<-function(fspeed=60,fdistance=1000000)
+{
+  speedms<-fspeed/3.6
+  ftime<-fdistance/speedms+60
+}
+FFly<-function(fbmr=BMR,ftime=FFlightTime()){
+  EUse<-12*fbmr*ftime/1000
+  EUse
+  }
+
+hist(FEnergy2Fat(FFly()))
+```
+
+```{r}
+save(list=ls(),file="/home/rstudio/morph/scripts/functions.rob")
+```
+

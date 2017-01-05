@@ -1,0 +1,67 @@
+---
+title: "Energetics"
+output:
+  pdf_document: default
+  html_document: default
+  
+---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+source("/home/rstudio/morph/scripts/model_functions.R")
+load("/home/rstudio/morph/data/test.rob")
+sites$mean_biomass[is.na(sites$mean_biomass)]<-0
+```
+
+## Birds arrive
+
+```{r}
+tm<-FMakeTime(2015,12,15)
+dt<-format(tm,"%Y-%m-%d")
+birds<-FArriveBirds(tm,1000,sites)
+```
+
+## Calculate BMR of birds
+
+```{r}
+library(dplyr)
+
+FBMRHour<-function(fbirds=birds,fclim=clim,fdt=dt)
+{
+current_clim<-filter(fclim,date==dt)
+temperature<-(current_clim$tmin+current_clim$tmax)/20
+windspeed<-current_clim$avwind/10
+fbirds$BMR<-FBMR(temperature,windspeed,fbirds$weight-fbirds$fat)
+fbirds$energy_use<-fbirds$BMR*(60*60/1000)
+fbirds
+}
+
+birds<-FBMRHour()
+head(birds)
+```
+
+
+### Feeding
+
+Set tide
+
+```{r}
+sites<-FSuitable(fsites=sites,ftm=tm,ftides=tides,depth=-0.4,height=1)
+sites<-FValueSites(sites)
+birds<-FMoveBirds(birds,sites,dist,search_distance = 2000)
+```
+
+
+```{r}
+birds_sites<-merge(birds,sites)
+birds$consumption<-FConsumption(birds_sites$mean_biomass*sites$psuitable/100)*60
+birds$energy_gain<-FEnergyAssim(birds$consumption)
+birds$new_fat<-FEnergy2Fat(birds$energy_gain-birds$energy_use)
+
+birds %>%
+  group_by(rid) %>%
+summarise(
+mean(new_fat),
+mean(energy_gain),
+mean(energy_use))
+```
+

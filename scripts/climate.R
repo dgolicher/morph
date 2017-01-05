@@ -1,4 +1,5 @@
 library(rnoaa)
+library(reshape2)
 #station_data <- ghcnd_stations()
 #load("station_data.dat")
 #stations<-meteo_process_geographic_data(station_data, lat, lon)

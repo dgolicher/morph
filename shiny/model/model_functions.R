@@ -4,6 +4,8 @@ library(plotly)
 library(ggplot2)
 library(dismo)
 library(dplyr)
+library(insol)
+
 load("/home/rstudio/morph/data/test.rob")
 map<-gmap(grat,type="satellite")
 
@@ -40,14 +42,24 @@ FSuitable<-function(fsites=sites,ftm=tm,ftides=tides,depth=-1,height=1){
 }
 
 
-FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites)
+FFat2Energy<-function(fat)34.3*fat # g fat to KJoules
+FEnergy2Fat<-function(energy)energy/34.3 # KJoules to g fat
+
+FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites,male_wt=1500,female_wt=1400,fat=300)
 {
-  wt<-rnorm(nbirds,mean=1.5,sd=0.2) ##Change this later
+  sex<-sample(c("M","F"),nbirds,replace=T)
+  lean_wt<-numeric(nbirds)
+  lean_wt[sex=="M"]<-male_wt
+  lean_wt[sex=="F"]<-female_wt
+  lean_wt<-lean_wt+rnorm(nbirds,0,sd=20)
+  fat<-rlnorm(nbirds,mean=log(fat),sd=0.2)
+  wt<-lean_wt+fat
+  energy_store<-FFat2Energy(fat)
   ## Add other properties here
   ##
   rid<-sample(fsites$rid,nbirds,replace=TRUE) ## Place them at random
   bid<-1:nbirds ## ID number
-  birds<-data.frame(bid,arrive_time=ftm,weight=wt,rid=rid)
+  birds<-data.frame(bid,arrive_time=ftm,sex=sex,weight=wt,fat=fat,energy_store=energy_store,rid=rid)
   birds
 }
 
@@ -57,7 +69,6 @@ FAddBirds<-function(ftm=tm,nbirds= 10,fsites=sites,fbirds=birds)
   newbirds$bid<-newbirds$bid+max(fbirds$bid)
   rbind(fbirds,newbirds)
 }
-
 
 FValueSites<-function(fsites=sites)
 {
@@ -104,3 +115,33 @@ FMoveBirds<-function(fbirds=birds,fsites=sites,fdist=dist,search_distance=1200)
   fbirds<-bird_moves[,keep_columns]
   fbirds
 }
+
+
+### Energy calculations not yet correct
+
+FConsumption<-function(biomass)100*0.01028*(1-exp(-0.105*biomass))*(1.0373*(1-exp(-0.0184*biomass)))
+
+FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E
+
+FMR<-function(temperature=-10,windspeed=2,mass=1500)
+{
+  TBrant<-7.5
+  temperature[temperature>TBrant]<-TBrant
+  windspeed[windspeed<0.5]<-0.5
+  DeltaT<-TBrant-temperature
+  b<-0.0092*mass^0.66*DeltaT^0.32
+  a<-4.15-b*sqrt(0.06)
+  a+b+sqrt(windspeed)
+}
+
+### Utility to check if day or night
+
+FIsDay<-function(tm,Lat=55.32,Lon=-162.8)
+{
+  hr<-as.numeric(format(tm, format='%H'))
+  day_len<-data.frame(daylength(Lat, Lon,JD(tm), tmz=-10))
+  isday<-ifelse(hr>day_len$sunrise & hr< day_len$sunset,"Day","Night") 
+  isday}
+
+
+
