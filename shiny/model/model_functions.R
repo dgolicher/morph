@@ -123,11 +123,17 @@ FConsumption<-function(biomass)100*0.01028*(1-exp(-0.105*biomass))*(1.0373*(1-ex
 
 FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E
 
+<<<<<<< HEAD
 FMR<-function(temperature=-10,windspeed=2,mass=1500)
 {
   TBrant<-7.5
   temperature[temperature>TBrant]<-TBrant
   windspeed[windspeed<0.5]<-0.5
+=======
+FMR<-function(temperature=4,windspeed=9.4,mass=1500)
+{
+  TBrant<-37.5
+>>>>>>> dec55a03f59965ed4d221baa332c219f556ec9c8
   DeltaT<-TBrant-temperature
   b<-0.0092*mass^0.66*DeltaT^0.32
   a<-4.15-b*sqrt(0.06)
