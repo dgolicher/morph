@@ -1,0 +1,8 @@
+name: Publish Document
+title:
+account: rpubs
+server: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/247598/cdd4cab2b62f43d0905b47780defa1c1
+bundleId: https://api.rpubs.com/api/v1/document/247598/cdd4cab2b62f43d0905b47780defa1c1
+url: http://rpubs.com/dgolicher/247598
+when: 1486389538.47376

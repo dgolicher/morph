@@ -1,9 +1,10 @@
 ---
 title: "Energetics"
 output:
+  html_document: 
+    number_sections: yes
+    toc: yes
   pdf_document: default
-  html_document: default
-  
 ---
 
 ## Load the data
@@ -16,11 +17,17 @@ library(ggplot2)
 library(dismo)
 library(dplyr)
 library(insol)
+library(ggmap)
 load("/home/rstudio/morph/data/test.rob")
 Lat<-median(sites$lat) ## Get lat and long which are used in some functions such as day length
 Lon<-median(sites$lon)
 sites$mean_biomass[is.na(sites$mean_biomass)]<-0 ## Set not available to zero
-map<-gmap(grat,type="satellite")
+map<-gmap(grat)
+plot(map)
+
+map2<-get_map(location=c(Lon,Lat),maptype="terrain",zoom=10)
+map2<-ggmap(map2)
+map2
 ```
 
 ## A function to make a time stamp
@@ -121,7 +128,7 @@ plot(clim$date,FBMR(temperature,windspeed))
 ```{r}
 biomass<-1:100
 FConsumption<-function(fbiomass)100*0.01028*(1-exp(-0.105*fbiomass))*(1.0373*(1-exp(-0.0184*fbiomass))/60)
-plot(FConsumption(biomass)~biomass)
+plot(FConsumption(biomass)*3600~biomass)
 
 
 ```
@@ -130,7 +137,7 @@ Converting into energy assimilated
 
 ```{r}
 FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E*1000
-plot(FEnergyAssim(FConsumption(biomass))~biomass)
+plot(FEnergyAssim(FConsumption(biomass))*3600~biomass)
 
 ```
 
@@ -368,13 +375,17 @@ FMoveBirds<-function(fbirds=birds,fmoves=moves)
 
 ```{r}
 
-move<-FFilterMoves(search_distance=20000)
-moves<-FScoreMoves()
-birds<-FMoveBirds()
+FMakeMoves<-function(fbirds=birds,fsites=sites,fdist=dist,search_distance=20000)
+{
+  fmoves<-FFilterMoves(fdist=fdist,fbirds=fbirds,search_distance=search_distance)
+  fmoves<-FScoreMoves(fmoves=fmoves,fsites=fsites,flight_cost=TRUE)
+  fbirds<-FMoveBirds(fbirds=fbirds,fmoves=fmoves)
+  fbirds
+}
 
-plot(map)
+birds<-FMakeMoves()
 birds_sites<-merge(birds,sites)
-points(birds_sites$x,birds_sites$y,pch=21,bg="red")
+map2+geom_point(data=birds_sites,aes(lon, lat),col="red")
 ```
 
 
@@ -383,12 +394,9 @@ for (i in 1:10)
 {
 tm<<-tm+(60*60*60)
 sites<<-FSuitable(sites,tm)
-moves<<-FFilterMoves(fbirds=birds)
-moves<<-FScoreMoves()
-birds<<-FMoveBirds(birds,moves)
-plot(map)
+birds<<-FMakeMoves(fsites=sites,fbirds=birds)
 birds_sites<-merge(birds,sites)
-points(birds_sites$x,birds_sites$y,pch=21,bg="red")
+print(map2+geom_point(data=birds_sites,aes(lon, lat),col="red"))
 }
 
 

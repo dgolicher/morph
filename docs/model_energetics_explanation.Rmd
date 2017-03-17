@@ -1,0 +1,247 @@
+---
+title: "Explanation of the issues around model energetic balance"
+output:
+  html_document:
+    toc: yes
+  pdf_document: default
+---
+
+
+```{r,warning=FALSE,message=FALSE,echo=FALSE,results='hide'}
+
+library(rgdal)
+library(plotly)
+library(ggplot2)
+library(dismo)
+library(dplyr)
+library(insol)
+library(ggmap)
+load("/home/rstudio/morph/data/test.rob")
+Lat<-median(sites$lat) ## Get lat and long which are used in some functions such as day length
+Lon<-median(sites$lon)
+sites$mean_biomass[is.na(sites$mean_biomass)]<-0 ## Set not available to zero
+map<-gmap(grat)
+map2<-get_map(location=c(Lon,Lat),maptype="terrain",zoom=10)
+map2<-ggmap(map2)
+
+FMakeTime<-function(year=2016,month=1,day=1,hr=1){
+  tm<-sprintf("%04d-%02d-%02d %02d:00:00",year,month,day,hr)
+  tm<-as.POSIXct(tm)
+  tm
+}
+FMakeDate<-function(ftm=tm)format(ftm,"%Y-%m-%d")
+tm<-FMakeTime()
+tm
+FMakeDate(tm)
+tm+60*60
+
+```
+
+
+## Basal metabolic rate (BMR)
+
+In the Humbolt paper a simple function for basal metabolic rate is used based on body mass alone. Brant geese weigh between 1.4 and 1.8 kg.
+The function calculates energy expenditure in joules per second (Watts). It is easier to think in terms of KJ per hour.
+
+```{r}
+FBMR <- function(mass)4.59*mass^0.69
+FBMR(1.4)
+mass<-(1500:1700)/1000
+d<-data.frame(mass,bmr=FBMR(mass)*60*60/1000)
+g0<-ggplot(d,aes(x=mass,y=bmr))
+g0+geom_line()+theme_bw()+labs(x="Mass (kg",y="BMR KJoules per hour",title="Relationship between mass and BMR")
+
+```
+
+## Conversion of energy to fat
+
+A more intuitive way of thinking about energy expenditure is in terms of grams of fat. These two simple functions run the conversions (in the model I use functions so that the calculations can be easily changed throughout by changing the function)
+
+```{r}
+FFat2Energy<-function(fat)34.3*fat # g fat to KJoules
+FEnergy2Fat<-function(energy)energy/34.3 # KJoules to g fat
+```
+
+So the daily energy expenditure in terms of grams of fat is betweeen 13 and 17 grams. This direct conversion may be too high however as presumably some of the energy is lost in the conversion.
+
+```{r}
+FEnergy2Fat(20)*24
+FEnergy2Fat(25)*24
+```
+
+
+## Taking into account temperature and windspeed to calculate BMR
+
+Ellie is currently working with a more complex equation for BMR that takes into account both temperature and windspeed.
+
+```{r}
+
+FBMR<-function(ftemperature=-10,fwindspeed=2,fmass=1500)
+{
+TBrant<-7.5
+ftemperature[ftemperature>TBrant]<-TBrant
+fwindspeed[fwindspeed<0.5]<-0.5
+DeltaT<-TBrant-ftemperature
+b<-0.0092*fmass^0.66*DeltaT^0.32
+a<-4.15-b*sqrt(0.06)
+a+b+sqrt(fwindspeed)
+}
+
+
+```
+
+This gives results that are similar to the Humbolt equation when temperature is set to 10 degrees on a calm day.
+
+```{r}
+FBMR(ftemperature=10,fwindspeed=2,fmass=1500)*60*60/1000
+```
+
+
+## Testing this against a year's climate data
+
+The model contains daily climate data for the site that can be used to test how this equation behaves over the space of a year.
+
+```{r}
+clim<-subset(clim,as.numeric(format(clim$date,'%Y'))==2015)
+temperature<-(clim$tmin+clim$tmax)/20
+windspeed<-clim$avwind/10
+dbmr<-data.frame(date=clim$date,temperature, windspeed, bmr= FBMR(temperature,windspeed)*60*60/1000)
+
+g0<-ggplot(dbmr,aes(x=date,y=bmr))
+g0+geom_point()+geom_smooth()+theme_bw()+labs(x="Date",y="BMR KJoules per hour",title="Annual variation in BMR")
+
+```
+
+So, on cold windy days in the winter bmr increases to a maximum of about 35 KJ per hour. This is about 25 g of fat. 
+
+```{r}
+FEnergy2Fat(35)*24
+```
+
+Bird's fat reserves may be around 250g. This implies that they can survive for around ten days without food. This seems reasonable. So the BMR calculations appear to be fairly reliable. The problems arise from food consumption.
+
+## Consumption function from the Humbolt paper
+
+The functional response in the Humbolt paper gives the dry biomass consumed in one minute as a function of eelgrass density.
+
+```{r}
+biomass<-1:100
+FConsumption<-function(fbiomass)0.6*0.01028*(1-exp(-0.105*fbiomass))*(1.0373*(1-exp(-0.0184*fbiomass)))
+d<-data.frame(biomass,consumption=FConsumption(biomass))
+
+g0<-ggplot(d,aes(x=biomass,y=consumption*60*60))
+g0+geom_line()+theme_bw()+labs(x="Eelgrass density (g/m2)",y="consumption (g) per hour",title="Rate of eelgrass consumption")
+
+```
+
+## Alternative 
+
+$$C=\frac{sR}{F+R}$$
+
+Where C is resource consumption, R is the amount or density of the
+resource, s is the asymptotic value and F represents the density of resource at which half the asymptotic consumption is expected to occur. 
+
+```{r}
+
+FConsumption<-function(fbiomass,s=0.4/60,F=40)s*fbiomass/(F+fbiomass)
+
+d<-data.frame(d,consumption2=FConsumption(biomass))
+names(d)<-c("biomass","Eq1","Hyperbola")
+library(tidyr)
+d %>% gather("Equation","value",Eq1:Hyperbola) ->dd
+
+g0<-ggplot(dd,aes(x=biomass,y=value*60,colour=Equation))
+g0+geom_line()+theme_bw()+labs(x="Eelgrass density (g/m2)",y="consumption (g) per minute",title="Rate of eelgrass consumption")
+d<-data.frame(biomass,consumption=FConsumption(biomass)*3600)
+```
+
+
+## Converting eelgrass into energy assimilated
+
+The function in the Humbolt paper has the assimilation proportion set to 0.464 and the energy content as 16.8. Using that to convert food consumed into energy assimilation on an hourly basis.
+
+```{r}
+FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E
+d$energy<-FEnergyAssim(d$consumption)
+
+g0<-ggplot(d,aes(x=biomass,y=energy))
+g0+geom_line()+theme_bw()+labs(x="Eelgrass density (g/m2)",y="Hourly energy gain kj",title="Rate of energy gain")
+
+```
+
+This seems too high as the maximum gain is around ten times the basal metabolic rate. It implies that the potential fat gain (ignoring expenditure) when feeding at peak densities.
+
+```{r}
+d$fatgain<-FEnergy2Fat(d$energy)
+g0<-ggplot(d,aes(x=biomass,y=fatgain))
+g0+geom_line()+theme_bw()+labs(x="Eelgrass density (g/m2)",y="Hourly fat gain",title="Fat gain")
+```
+
+This is clearly on the high side.
+
+## Number of hours feeding per day needed to break even
+
+Dividing the total energy requirements for just BMR (there are of course other ways in which the birds lose energy during daily activities) gives an idea of how much time feeding is needed to break even over the day.
+
+```{r}
+hourlymax<-FEnergyAssim(FConsumption(100)*3600)
+hourlymax
+max(dbmr$bmr)
+dbmr$hours<-dbmr$bmr*24/hourlymax
+g0<-ggplot(dbmr,aes(x=date,y=hours))
+g0+geom_line()+theme_bw()+labs(x="Date",y="Hours of feeding needed to balance BMR",title="Hours peak feeding needed to survive if no other energy expenditure")
+
+```
+
+## The daily maximum energy gain in the Humboldt paper
+
+This also looks rather problematic as it implies that birds can gain over 40g of fat per day after allowing for BMR losses. 
+
+```{r}
+dailymax<-1713*1.5^0.72
+dailymax
+dailymax/8/12
+FEnergy2Fat(dailymax)
+```
+
+After allowing for expenditure I would have expected the maximum to be not much more than 15 to 20g if the birds take around two to three weeks to gain enough energy for migration.
+
+Flying does expend from between 10 to 16 times BMR, so a few hours flying can certainly help to balance the budget, but the figures for potential energy assimilation from feeding still all seem on the high side. If I use these equations the birds gain, rather than lose, body mass when wintering at Izembeck, unless feeding is very difficult and disturbance is very high.
+
+
+## Changes in eelgrass
+
+One very simple way to calculate the daily change in eelgrass biomass is to set a Julian day (day counted from 01 Jan) as the lowpoint of the year and another as the high point. As the lowpoint is in late spring the eelgrass will be growing if the day falls between these limits. If it does not, then the eelgrass will be in decline.
+
+Because this is a proportion leading to slow exponential growth or decline the actual change will depend to some extent on the time step used. This effect can be overlooked for short model runs.
+
+```{r}
+FEelgrassChange<-function(ftm=tm,lowday=100,highday=200,lowpercent=50){
+
+  incdays<-(highday-lowday)
+  decdays<-365-incdays
+  dailyincrease<-1+lowpercent/100/incdays
+  dailydecrease<-1-lowpercent/100/decdays
+  jday<-as.numeric(strftime(ftm, format = "%j"))
+  dailychange<-dailydecrease
+  if(jday>lowday & jday<highday)dailychange<-dailyincrease
+  dailychange
+
+}
+
+FEelgrassChange(ftm=tm+60*60*24*300)
+
+```
+
+
+```{r}
+start<-tm+60*60*24*100
+end<-tm+60*60*24*1436
+tms<-seq(start,end,by=60*60*24)
+
+plot(tms,cumprod(unlist(lapply(tms,FEelgrassChange))))
+```
+
+
+
+

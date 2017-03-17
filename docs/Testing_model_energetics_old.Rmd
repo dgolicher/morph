@@ -1,0 +1,413 @@
+---
+title: "Energetics"
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+  pdf_document: default
+---
+
+## Load the data
+
+```{r,warning=FALSE,message=FALSE}
+
+library(rgdal)
+library(plotly)
+library(ggplot2)
+library(dismo)
+library(dplyr)
+library(insol)
+library(ggmap)
+load("/home/rstudio/morph/data/test.rob")
+Lat<-median(sites$lat) ## Get lat and long which are used in some functions such as day length
+Lon<-median(sites$lon)
+sites$mean_biomass[is.na(sites$mean_biomass)]<-0 ## Set not available to zero
+map<-gmap(grat)
+plot(map)
+
+map2<-get_map(location=c(Lon,Lat),maptype="terrain",zoom=10)
+map2<-ggmap(map2)
+map2
+```
+
+## A function to make a time stamp
+
+```{r,message=FALSE,warning=FALSE}
+
+FMakeTime<-function(year=2016,month=1,day=1,hr=1){
+  tm<-sprintf("%04d-%02d-%02d %02d:00:00",year,month,day,hr)
+  tm<-as.POSIXct(tm)
+  tm
+}
+FMakeDate<-function(ftm=tm)format(ftm,"%Y-%m-%d")
+tm<-FMakeTime()
+tm
+FMakeDate(tm)
+tm+60*60
+```
+
+## A Utility function to calculate day or night
+
+Use the insol package. This produces an object with sunrise and sunset times, so if the hour falls between them it is day.
+
+```{r,warning=FALSE,message=FALSE}
+
+FIsDay<-function(tm,Lat=55.32,Lon=-162.8)
+{
+hr<-as.numeric(format(tm, format='%H'))
+day_len<-data.frame(daylength(Lat, Lon,JD(tm), tmz=-10))
+isday<-ifelse(hr>day_len$sunrise & hr< day_len$sunset,"Day","Night") 
+isday}
+
+tm<-FMakeTime(2016,1,1,10)
+FIsDay(tm)
+tm<-FMakeTime(2016,1,1,7)
+FIsDay(tm)
+
+```
+
+
+## Calculate basal metabolic rate (BMR)
+
+This is the function taken from Humbolt paper
+
+```{r}
+FBMR <- function(mass)4.59*mass^0.69
+FBMR(1.4)
+mass<-(1440:1576)/1000
+plot(FBMR(mass)~mass)
+
+```
+
+## Conversion of energy to fat
+
+```{r}
+FFat2Energy<-function(fat)34.3*fat # g fat to KJoules
+FEnergy2Fat<-function(energy)energy/34.3 # KJoules to g fat
+```
+
+
+## Using the spreadsheet equation taking into account temperature and windspeed to calculate BMR
+
+As I understand it from the spreadsheet this set of equation should calculate the metabolic rate in the same units ()
+
+```{r}
+
+FBMR<-function(ftemperature=-10,fwindspeed=2,fmass=1500)
+{
+TBrant<-7.5
+ftemperature[ftemperature>TBrant]<-TBrant
+fwindspeed[fwindspeed<0.5]<-0.5
+DeltaT<-TBrant-ftemperature
+b<-0.0092*fmass^0.66*DeltaT^0.32
+a<-4.15-b*sqrt(0.06)
+a+b+sqrt(fwindspeed)
+}
+FBMR(10)
+
+
+```
+
+## Testing against a year's climate data
+
+I haven't got data for the whole of 2016.
+
+```{r}
+clim<-subset(clim,as.numeric(format(clim$date,'%Y'))==2015)
+temperature<-(clim$tmin+clim$tmax)/20
+windspeed<-clim$avwind/10
+plot(temperature,FBMR(temperature))
+```
+
+```{r}
+plot(clim$date,FBMR(temperature,windspeed))
+```
+
+## Consumption function from the Humbolt paper
+
+```{r}
+biomass<-1:100
+FConsumption<-function(fbiomass)100*0.01028*(1-exp(-0.105*fbiomass))*(1.0373*(1-exp(-0.0184*fbiomass))/60)
+plot(FConsumption(biomass)~biomass)
+
+
+```
+
+Converting into energy assimilated
+
+```{r}
+FEnergyAssim<-function(consumption, a=0.464, E= 16.8)consumption*a*E*1000
+plot(FEnergyAssim(FConsumption(biomass))~biomass)
+
+```
+
+```{r}
+plot(FEnergyAssim(FConsumption(sites$mean_biomass))~sites$mean_biomass)
+```
+
+#################
+
+
+
+## Resting
+
+
+Assume 20% over BMR. Add time argument in seconds.
+Returns energy used in KJoules.
+
+```{r}
+
+BMR<-FBMR(temperature,windspeed,fmass=1700)
+
+FRest<-function(fbmr=BMR,ftime=3600)
+{1.2*fbmr*ftime/1000}
+
+hist(FEnergy2Fat(FRest()))
+```
+
+## Feeding
+
+Assume use twice BMR while feeding.
+
+```{r}
+FFeed<-function(fbmr=BMR,ftime=3600,fbiomass=100){
+EGain<-FEnergyAssim(FConsumption(fbiomass))*ftime/1000
+EUse<-2*fbmr*ftime/1000
+EGain-EUse
+}
+hist(FEnergy2Fat(FFeed()))
+```
+
+## Maximum energy per day
+
+According to the Humbolt paper this is given by
+
+```{r}
+FMaxDaily<-function(mass)1713*mass^0.72
+FMaxDaily(1500)/1000
+FFeed()[1]
+```
+
+So using these formulae the birds can get enough energy for a whole day from just one hour's intensive feeding. This seems much too high. However this assumes that an hour feeding is completely dedicated to intensive feeding activity, which is unrealistic.
+
+## Flying
+
+Assume velocity of 60km per second and overhead for take off for all flights equivalent to a minute's flight time. Use 12 times BMR.
+
+
+
+```{r}
+
+FFlightTime<-function(fspeed=60,fdistance=1000000)
+{
+  speedms<-fspeed/3.6
+  ftime<-fdistance/speedms+60
+}
+FFly<-function(fbmr=BMR,ftime=FFlightTime()){
+  EUse<-12*fbmr*ftime/1000
+  EUse
+  }
+
+hist(FEnergy2Fat(FFly()))
+```
+
+## Setting the percentage area of each site which are suitable for feeding
+
+This function is the first in the set to receive two dataframes as arguments. The sites data frame is merged with the tides data frame after filtering the tides data frame to the rows representing the height of the tides in each bay. The proportion of the area in each patch lying between a minimum depth and a maximum height after changing the water level at each site accordingly is calculated, added to the sites data frame and the whole data frame is returned. So we need to assign the result to the sites data frame.
+
+```{r}
+FSuitable<-function(fsites=sites,ftm=tm,ftides=tides,depth=-0.4,height=0){
+  current_tide<-subset(ftides,ftides$time==ftm)
+  d<-merge(fsites,current_tide)
+  tide<-d$ht
+  depth<-depth+tide
+  height<-height+tide
+  dd<-cbind(d$min,d$q10,d$q25,d$median,d$q75,d$q90,d$max,depth,height)
+  f<-function(x)
+  {
+    q<-c(0,10,25,50,75,90,100)
+    qs<-x[1:7]
+    depth<-x[8]
+    height<-x[9]
+    x2<-q[qs>=depth&qs<=height]
+    # The supress warnings are needed as the vector may be of zero
+    # length. This also leads to results of -inf instead of zero
+    suppressWarnings(x2<-max(x2,na.rm=TRUE)-min(x2,na.rm=TRUE))
+    if(is.na(x2))x2<-0
+    if(x2==-Inf)x2<-0
+    x2
+  }
+  fsites$psuitable<-apply(dd,1,f)
+  fsites
+}
+```
+
+```{r}
+tm<-FMakeTime(2015,7,15)
+dt<-FMakeDate(tm)
+sites<-FSuitable(sites,tm)
+str(sites)
+```
+
+
+## Add the birds
+
+The dataframes obtained from the data base include site data, distances between sites and climate data. However there are no birds. This function forms an initial birds data frame. Other derived characteristics can be added when the model runs.
+
+
+```{r}
+FArriveBirds<-function(ftm=tm,nbirds= 10,fsites=sites,male_wt=1500,female_wt=1400,fat=300)
+  {
+  sex<-sample(c("M","F"),nbirds,replace=T)
+  lean_wt<-numeric(nbirds)
+  lean_wt[sex=="M"]<-male_wt
+  lean_wt[sex=="F"]<-female_wt
+  lean_wt<-lean_wt+rnorm(nbirds,0,sd=20)
+  fat<-rlnorm(nbirds,mean=log(fat),sd=0.2)
+  wt<-lean_wt+fat
+  energy_store<-FFat2Energy(fat)
+  ## Add other properties here
+  ##
+  rid<-sample(fsites$rid,nbirds,replace=TRUE) ## Place them at random
+  bid<-1:nbirds ## ID number
+  birds<-data.frame(bid,arrive_time=ftm,sex=sex,weight=wt,fat=fat,energy_store=energy_store,rid=rid)
+  birds
+}
+```
+
+## Add more birds
+
+If we want to add birds after the first arrival time then we need to pass the  birds dataframe that was created to the function in order to keep the ids sequential. The same function is used again to create more birds at the site.
+
+```{r}
+FAddBirds<-function(ftm=tm,nbirds= 10,fsites=sites,fbirds=birds)
+  {
+  newbirds<-FArriveBirds(ftm,nbirds,fsites)
+  newbirds$bid<-newbirds$bid+max(fbirds$bid)
+  rbind(fbirds,newbirds)
+}
+```
+
+
+
+```{r}
+birds<-FArriveBirds(tm,10,sites)
+birds<-FAddBirds(tm,10000,sites,birds)
+str(birds)
+```
+
+## Calculate value of moving
+
+This is a tricky function to get right. The "dist"" data frame looks like this ...
+
+
+```{r}
+str(dist)
+```
+
+
+We have two rids, one representing the source site and the second representing the potential destinations. This contains all possible moves. To speed things up we only want to look at distances between sites with birds and only within a search distance. 
+
+```{r}
+FFilterMoves<-function(fdist=dist,fbirds=birds,search_distance=10000)
+{
+moves<-fdist[fdist$rid %in% unique(fbirds$rid),]
+moves<-moves[moves$dist_m<search_distance,]
+moves}
+
+moves<-FFilterMoves()
+head(moves)
+```
+
+## Scoring the moves
+
+We need to look at eelgrass biomass and the area that is suitable on the destination sites (psuitable). If we merge the sites data frame by default the matched column is rid, not rid2. I.e. the source rather than the destination. We should only look at sites with a suitability of greater than zero.
+
+We can calculate the energy gained feeding and lost by moving using a fixed basal metabolic rate for comparative purposes to simplify a bit. There's nothing to be gained by calculating the actual BMR on the day as all we really need at the end is a rank. The ranks are grouped by source rid using tapply.
+
+```{r}
+FScoreMoves<-function(fmoves=moves,fsites=sites,flight_cost=TRUE)
+{
+fsites<-fsites[fsites$psuitable>0,]  
+fmoves<-merge(fmoves,fsites, by.x="rid2",by.y="rid")
+fmoves$flight_time<-FFlightTime(fdistance=fmoves$dist_m)
+fmoves$fly<-FFly(fbmr=9,ftime=fmoves$flight_time)
+biomass<-fmoves$mean_biomass#*(fmoves$psuitable/100)
+
+if (flight_cost==TRUE)
+  {fmoves$feed<-FFeed(fbmr=9,ftime=3600-fmoves$flight_time,fbiomass=biomass) ## Subtract the time neeed to fly there
+fmoves$energy<-fmoves$feed -fmoves$fly}
+
+if (flight_cost==FALSE)
+  {fmoves$feed<-FFeed(fbmr=9,ftime=3600,fbiomass=biomass) ## Subtract the time neeed to fly there
+fmoves$energy<-fmoves$feed}
+
+
+fmoves<-fmoves %>% 
+          arrange(rid, -energy) %>%
+          group_by(rid) %>%
+          mutate(rank=row_number()) %>%
+          filter(rank==1)
+ 
+fmoves<-fmoves[c("rid","rid2","dist_m","flight_time","feed","fly","energy","rank")]
+}
+
+moves<-FScoreMoves()
+```
+
+## Move the birds
+
+There will be some cases in which there are no suitable sites in range as they are all covered by the tide. In this case the birds stay put. Change the rid to the new value and add only the flight time and distance to the data frame.
+
+```{r}
+FMoveBirds<-function(fbirds=birds,fmoves=moves)
+{
+  bird_moves<-merge(fbirds,fmoves,all.x=TRUE)
+  bird_moves$rid2[is.na(bird_moves$rid2)]<-bird_moves$rid[is.na(bird_moves$rid2)]
+  fbirds$rid<-bird_moves$rid2
+  fbirds$distance<-bird_moves$dist_m
+  fbirds
+}
+
+
+```
+
+
+```{r}
+
+moves<-FFilterMoves(search_distance=20000)
+moves<-FScoreMoves()
+birds<-FMoveBirds()
+
+
+birds_sites<-merge(birds,sites)
+map2+geom_point(data=birds_sites,aes(lon, lat),col="red")
+```
+
+
+```{r}
+for (i in 1:10)
+{
+tm<<-tm+(60*60*60)
+sites<<-FSuitable(sites,tm)
+moves<<-FFilterMoves(fbirds=birds)
+moves<<-FScoreMoves()
+birds<<-FMoveBirds(birds,moves)
+birds_sites<-merge(birds,sites)
+print(map2+geom_point(data=birds_sites,aes(lon, lat),col="red"))
+}
+
+
+```
+
+```{r}
+
+
+
+
+```
+
+```{r}
+save(list=ls(),file="/home/rstudio/morph/scripts/functions.rob")
+```
+
